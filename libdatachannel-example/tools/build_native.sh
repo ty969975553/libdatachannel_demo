@@ -1,15 +1,10 @@
 #!/bin/bash
+set -euo pipefail
 
-# 设置构建目录
-BUILD_DIR=build_native
-mkdir -p $BUILD_DIR
-cd $BUILD_DIR
+BUILD_DIR=${1:-build}
 
-# 运行CMake以配置构建
-cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake -S "$(dirname "$0")/.." -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$BUILD_DIR"
 
-# 编译项目
-cmake --build . --target all
+echo "Native application built in $BUILD_DIR/native_app"
 
-# 输出可执行文件
-echo "本地应用程序已成功构建，输出在 $BUILD_DIR 目录中。"

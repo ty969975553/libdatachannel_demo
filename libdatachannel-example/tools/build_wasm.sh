@@ -1,17 +1,16 @@
 #!/bin/bash
+set -euo pipefail
 
-# 设置Emscripten环境
-source /path/to/emsdk/emsdk_env.sh
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <emscripten-toolchain-file> [build-dir]"
+    exit 1
+fi
 
-# 创建构建目录
-mkdir -p build_wasm
-cd build_wasm
+TOOLCHAIN_FILE=$1
+BUILD_DIR=${2:-build-wasm}
 
-# 运行CMake以生成Makefile
-cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain/emscripten.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+cmake -S "$(dirname "$0")/.." -B "$BUILD_DIR" -DENABLE_WASM=ON -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$BUILD_DIR"
 
-# 编译WebAssembly应用程序
-make
+echo "WASM application built in $BUILD_DIR/wasm_app"
 
-# 返回到原始目录
-cd ..

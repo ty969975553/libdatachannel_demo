@@ -1,44 +1,84 @@
-#include "rtc_connection.h"
+#include "libdatachannel_example/rtc_connection.h"
+
 #include <libdatachannel/rtcdatachannel.h>
 #include <libdatachannel/rtcpeerconnection.h>
 #include <iostream>
 
-class RTCConnection {
-public:
-    RTCConnection() {
-        // Initialize the peer connection
-        rtc::Configuration config;
-        peer_connection = rtc::CreatePeerConnection(config);
-        
-        // Create a data channel
-        rtc::DataChannelInit data_channel_config;
-        data_channel = peer_connection->CreateDataChannel("dataChannel", data_channel_config);
-        
-        // Set up data channel event handlers
-        data_channel->OnMessage([this](rtc::DataChannelMessage const& msg) {
-            handleMessage(msg);
-        });
+namespace libdatachannel_example {
+
+RTCConnection::RTCConnection() = default;
+
+RTCConnection::~RTCConnection() {
+    close();
+}
+
+bool RTCConnection::initialize() {
+    rtc::Configuration config;
+    rtc::DataChannelInit dataChannelConfig;
+
+    peerConnection_ = rtc::createPeerConnection(config);
+    if (!peerConnection_) {
+        std::cerr << "Failed to create peer connection." << std::endl;
+        return false;
     }
 
-    void connect() {
-        // Logic to establish connection
-        std::cout << "Connecting..." << std::endl;
-        // Additional connection logic goes here
+    dataChannel_ = peerConnection_->createDataChannel("demo", dataChannelConfig);
+    if (!dataChannel_) {
+        std::cerr << "Failed to create data channel." << std::endl;
+        return false;
     }
 
-    void sendMessage(const std::string& message) {
-        if (data_channel->Send(rtc::DataChannelMessage(message))) {
-            std::cout << "Message sent: " << message << std::endl;
+    dataChannel_->onOpen([this]() {
+        running_ = true;
+    });
+
+    dataChannel_->onMessage([this](const rtc::DataChannelMessage& message) {
+        handleIncomingMessage(message);
+    });
+
+    dataChannel_->simulateOpen();
+    return true;
+}
+
+void RTCConnection::start() {
+    running_ = true;
+}
+
+void RTCConnection::processMessages() {
+    while (!messageQueue_.empty()) {
+        auto message = messageQueue_.front();
+        messageQueue_.pop();
+        if (messageCallback_) {
+            messageCallback_(message);
         } else {
-            std::cerr << "Failed to send message." << std::endl;
+            std::cout << "Received message: " << message << std::endl;
         }
     }
+}
 
-private:
-    void handleMessage(const rtc::DataChannelMessage& msg) {
-        std::cout << "Message received: " << msg.data() << std::endl;
+bool RTCConnection::shouldExit() const {
+    return !running_;
+}
+
+void RTCConnection::close() {
+    running_ = false;
+    dataChannel_.reset();
+    peerConnection_.reset();
+}
+
+void RTCConnection::sendMessage(const std::string& message) {
+    if (dataChannel_) {
+        dataChannel_->send(rtc::DataChannelMessage(message));
     }
+}
 
-    std::shared_ptr<rtc::PeerConnection> peer_connection;
-    std::shared_ptr<rtc::DataChannel> data_channel;
-};
+void RTCConnection::onMessage(std::function<void(const std::string&)> callback) {
+    messageCallback_ = std::move(callback);
+}
+
+void RTCConnection::handleIncomingMessage(const rtc::DataChannelMessage& message) {
+    messageQueue_.push(message.data());
+}
+
+} // namespace libdatachannel_example
+
