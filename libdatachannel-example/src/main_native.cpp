@@ -1,31 +1,29 @@
+#include "libdatachannel_example/rtc_connection.h"
+
 #include <iostream>
-#include "rtc_connection.h"
 
-int main(int argc, char* argv[]) {
-    // Initialize RTC connection
-    RTCConnection rtcConnection;
+using libdatachannel_example::RTCConnection;
 
-    // Check if the connection is established
-    if (!rtcConnection.initialize()) {
+int main() {
+    RTCConnection connection;
+
+    if (!connection.initialize()) {
         std::cerr << "Failed to initialize RTC connection." << std::endl;
-        return -1;
+        return 1;
     }
 
-    // Start communication
-    rtcConnection.start();
+    connection.onMessage([](const std::string& message) {
+        std::cout << "Native app received: " << message << std::endl;
+    });
 
-    // Main loop for handling communication
-    while (true) {
-        // Process incoming messages
-        rtcConnection.processMessages();
+    connection.start();
+    connection.sendMessage("Hello from native app!");
 
-        // Check for exit condition (for example, user input)
-        if (rtcConnection.shouldExit()) {
-            break;
-        }
+    for (int i = 0; i < 5 && !connection.shouldExit(); ++i) {
+        connection.processMessages();
     }
 
-    // Clean up and close the connection
-    rtcConnection.close();
+    connection.close();
     return 0;
 }
+
