@@ -9,11 +9,12 @@ const messageLog = document.getElementById('messageLog');
 const messageInput = document.getElementById('messageInput');
 const sendMessageButton = document.getElementById('sendMessage');
 
-let peerConnection;
-let dataChannel;
-let hasRemoteDescription = false;
-const localCandidates = [];
-const appliedCandidates = new Set();
+const wasmBaseUrl = new URL('./wasm/', import.meta.url);
+
+let wasmModule = null;
+let answerSession = null;
+let pollTimer = null;
+let lastAnswerText = '';
 
 function logEvent(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -27,219 +28,180 @@ function logMessage(prefix, message) {
     messageLog.scrollTop = messageLog.scrollHeight;
 }
 
-function updateDescriptionStatus(state, isError = false) {
+function updateOfferStatus(text, isError = false) {
+    offerStatus.textContent = text;
+    offerStatus.classList.toggle('error', isError);
+}
+
+function updateDescriptionStatus(text, isError = false) {
     const badge = descriptionStatus.querySelector('.badge');
-    badge.textContent = state;
+    badge.textContent = text;
     badge.classList.toggle('error', isError);
 }
 
-function updateCandidateStatus() {
+function updateCandidateStatus(count) {
     const badge = candidateStatus.querySelector('.badge');
-    badge.textContent = `${localCandidates.length}`;
+    badge.textContent = `${count}`;
 }
 
-function buildSignalText() {
-    if (!peerConnection || !peerConnection.localDescription) {
-        return '';
+function parseCandidateCount(signalText) {
+    if (!signalText) {
+        return 0;
     }
-
-    const lines = [];
-    lines.push('type:answer');
-    lines.push('sdp-begin');
-    const sdp = peerConnection.localDescription.sdp.replace(/\r\n/g, '\n').trimEnd();
-    lines.push(sdp);
-    if (sdp.length > 0 && !sdp.endsWith('\n')) {
-        lines.push('');
+    let count = 0;
+    const lines = signalText.split(/\r?\n/);
+    for (const line of lines) {
+        if (line.startsWith('candidate:')) {
+            count += 1;
+        }
     }
-    lines.push('sdp-end');
-
-    for (const candidate of localCandidates) {
-        lines.push(`candidate:${candidate.sdpMid}|${candidate.candidate}`);
-    }
-
-    return lines.join('\n');
+    return count;
 }
 
-function refreshAnswerOutput() {
-    answerOutput.value = buildSignalText();
+function updateAnswerOutput(text) {
+    if (text === lastAnswerText) {
+        return;
+    }
+    lastAnswerText = text;
+    answerOutput.value = text;
+    updateCandidateStatus(parseCandidateCount(text));
+    if (text) {
+        updateDescriptionStatus('updated – copy to answer.txt');
+    }
 }
 
-function ensurePeerConnection() {
-    if (peerConnection) {
-        return peerConnection;
-    }
-
-    peerConnection = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' }
-        ]
+function injectWasmScript(url) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = url.toString();
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load ${url}`));
+        document.head.appendChild(script);
     });
-
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            const candidateKey = `${event.candidate.sdpMid}|${event.candidate.candidate}`;
-            const exists = localCandidates.some((entry) => `${entry.sdpMid}|${entry.candidate}` === candidateKey);
-            if (!exists) {
-                localCandidates.push({
-                    sdpMid: event.candidate.sdpMid ?? '0',
-                    candidate: event.candidate.candidate
-                });
-                updateCandidateStatus();
-                refreshAnswerOutput();
-            }
-        } else {
-            logEvent('Finished gathering local ICE candidates.');
-        }
-    };
-
-    peerConnection.onconnectionstatechange = () => {
-        logEvent(`Connection state changed: ${peerConnection.connectionState}`);
-        if (peerConnection.connectionState === 'connected') {
-            messageInput.disabled = false;
-            sendMessageButton.disabled = false;
-        }
-    };
-
-    peerConnection.oniceconnectionstatechange = () => {
-        logEvent(`ICE connection state: ${peerConnection.iceConnectionState}`);
-    };
-
-    peerConnection.ondatachannel = (event) => {
-        dataChannel = event.channel;
-        logEvent(`Received data channel "${dataChannel.label}"`);
-        attachDataChannelHandlers();
-    };
-
-    return peerConnection;
 }
 
-function attachDataChannelHandlers() {
-    if (!dataChannel) {
+async function loadWasmModule() {
+    try {
+        const moduleFactory = (await import('./wasm/wasm_app.js')).default;
+        return moduleFactory({
+            locateFile: (path) => new URL(path, wasmBaseUrl).toString(),
+        });
+    } catch (error) {
+        console.error('Failed to import WASM module', error);
+        try {
+            await injectWasmScript(new URL('./wasm/wasm_app.js', import.meta.url));
+        } catch (loadError) {
+            console.error(loadError);
+            throw error;
+        }
+        if (window.LibDataChannelExample) {
+            return window.LibDataChannelExample({
+                locateFile: (path) => new URL(path, wasmBaseUrl).toString(),
+            });
+        }
+        throw error;
+    }
+}
+
+function updateChannelState(isOpen) {
+    messageInput.disabled = !isOpen;
+    sendMessageButton.disabled = !isOpen;
+}
+
+function drainSessionQueues() {
+    if (!answerSession) {
         return;
     }
 
-    dataChannel.onopen = () => {
-        logEvent('Data channel is open.');
-        messageInput.disabled = false;
-        sendMessageButton.disabled = false;
-    };
-
-    dataChannel.onmessage = (event) => {
-        logMessage('Native', event.data);
-    };
-
-    dataChannel.onclose = () => {
-        logEvent('Data channel closed.');
-        messageInput.disabled = true;
-        sendMessageButton.disabled = true;
-    };
-}
-
-function parseSignalText(text) {
-    const result = {
-        type: '',
-        sdp: '',
-        candidates: []
-    };
-
-    const lines = text.split(/\r?\n/);
-    let index = 0;
-
-    while (index < lines.length) {
-        const line = lines[index].trim();
-        if (line.length === 0) {
-            index++;
-            continue;
-        }
-        if (line.startsWith('type:')) {
-            result.type = line.substring(5).trim();
-        } else if (line === 'sdp-begin') {
-            index++;
-            const sdpLines = [];
-            while (index < lines.length && lines[index] !== 'sdp-end') {
-                sdpLines.push(lines[index]);
-                index++;
-            }
-            result.sdp = sdpLines.join('\n');
-        } else if (line.startsWith('candidate:')) {
-            const payload = line.substring(10);
-            const separator = payload.indexOf('|');
-            if (separator === -1) {
-                index++;
-                continue;
-            }
-            const sdpMid = payload.substring(0, separator) || '0';
-            const candidate = payload.substring(separator + 1);
-            if (candidate) {
-                result.candidates.push({ sdpMid, candidate });
-            }
-        }
-        index++;
+    for (const event of answerSession.drainEvents()) {
+        logEvent(event);
     }
 
-    return result;
+    for (const message of answerSession.drainMessages()) {
+        logMessage('Native', message);
+    }
+
+    if (answerSession.hasSignalUpdate()) {
+        const signalText = answerSession.consumeSignal();
+        if (signalText) {
+            updateAnswerOutput(signalText);
+            logEvent('Answer updated. Copy to answer.txt to continue signaling.');
+        }
+    }
+
+    updateChannelState(answerSession.isChannelOpen());
+}
+
+async function initializeWasm() {
+    updateOfferStatus('Loading libdatachannel WASM…');
+    try {
+        wasmModule = await loadWasmModule();
+        answerSession = new wasmModule.WasmAnswerSession();
+        if (!answerSession.initialize()) {
+            updateOfferStatus('Failed to initialize WASM session', true);
+            logEvent('WASM session initialization failed.');
+            return;
+        }
+        logEvent('libdatachannel WASM session ready. Paste the offer and click "Apply Offer".');
+        updateOfferStatus('Ready for offer');
+        pollTimer = window.setInterval(drainSessionQueues, 250);
+        drainSessionQueues();
+    } catch (error) {
+        console.error(error);
+        updateOfferStatus('Unable to load libdatachannel WASM runtime', true);
+        logEvent(`Failed to load WASM runtime: ${error.message}`);
+    }
 }
 
 async function applyOffer() {
+    if (!answerSession) {
+        updateOfferStatus('WASM session not ready', true);
+        return;
+    }
+
     const offerText = offerInput.value.trim();
     if (!offerText) {
-        offerStatus.textContent = 'Offer missing';
-        offerStatus.classList.add('error');
+        updateOfferStatus('Offer missing', true);
         return;
     }
 
-    offerStatus.textContent = 'Processing offer…';
-    offerStatus.classList.remove('error');
+    updateOfferStatus('Applying offer…');
+    updateDescriptionStatus('processing');
 
-    const { type, sdp, candidates } = parseSignalText(offerText);
-    if (type !== 'offer' || !sdp) {
-        offerStatus.textContent = 'Invalid offer data';
-        offerStatus.classList.add('error');
+    const result = answerSession.applyOffer(offerText);
+    const success = Boolean(result && result.success);
+    if (!success) {
+        const errorMessage = result && result.error ? result.error : 'Failed to apply offer';
+        updateOfferStatus(errorMessage, true);
+        updateDescriptionStatus('error', true);
+        logEvent(`Error applying offer: ${errorMessage}`);
         return;
     }
 
-    const pc = ensurePeerConnection();
+    updateOfferStatus('Offer applied');
+    logEvent('Offer applied. Waiting for local answer from libdatachannel…');
+    drainSessionQueues();
+}
 
-    if (!hasRemoteDescription) {
-        try {
-            await pc.setRemoteDescription({ type: 'offer', sdp });
-            hasRemoteDescription = true;
-            offerStatus.textContent = 'Offer applied';
-            logEvent('Remote description applied. Creating answer…');
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            updateDescriptionStatus('created – copy to answer.txt');
-            refreshAnswerOutput();
-            logEvent('Local answer created. Copy it to answer.txt.');
-        } catch (error) {
-            console.error(error);
-            offerStatus.textContent = 'Failed to apply offer';
-            offerStatus.classList.add('error');
-            updateDescriptionStatus('error', true);
-            return;
-        }
-    } else {
-        offerStatus.textContent = 'Offer updated';
+function sendBrowserMessage() {
+    if (!answerSession || !answerSession.isChannelOpen()) {
+        logEvent('Data channel not open yet.');
+        return;
     }
 
-    for (const entry of candidates) {
-        const key = `${entry.sdpMid}|${entry.candidate}`;
-        if (appliedCandidates.has(key)) {
-            continue;
-        }
-        try {
-            await pc.addIceCandidate({
-                candidate: entry.candidate,
-                sdpMid: entry.sdpMid,
-                sdpMLineIndex: 0
-            });
-            appliedCandidates.add(key);
-        } catch (error) {
-            console.error('Failed to add remote candidate', error);
-            logEvent(`Failed to add remote candidate: ${error.message}`);
-        }
+    const message = messageInput.value.trim();
+    if (!message) {
+        return;
     }
+
+    if (!answerSession.sendMessage(message)) {
+        logEvent('Failed to send message through libdatachannel.');
+        return;
+    }
+
+    logMessage('Browser', message);
+    messageInput.value = '';
 }
 
 applyOfferButton.addEventListener('click', () => {
@@ -247,24 +209,18 @@ applyOfferButton.addEventListener('click', () => {
 });
 
 sendMessageButton.addEventListener('click', () => {
-    if (!dataChannel || dataChannel.readyState !== 'open') {
-        logEvent('Data channel not open yet.');
-        return;
-    }
-    const message = messageInput.value.trim();
-    if (!message) {
-        return;
-    }
-    dataChannel.send(message);
-    logMessage('Browser', message);
-    messageInput.value = '';
+    sendBrowserMessage();
 });
 
 messageInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        sendMessageButton.click();
+        sendBrowserMessage();
     }
 });
 
-logEvent('Ready. Paste the offer and click "Apply Offer".');
+initializeWasm();
+
+logEvent('Initializing libdatachannel WASM answer…');
+updateChannelState(false);
+

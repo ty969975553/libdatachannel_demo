@@ -1,5 +1,7 @@
 #include <rtc/rtc.hpp>
 
+#include "libdatachannel_example/signal_format.h"
+
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -15,17 +17,10 @@
 
 namespace {
 
-struct CandidateEntry {
-    std::string sdpMid;
-    //int sdpMLineIndex{0};
-    std::string candidate;
-};
-
-struct SignalData {
-    std::string type;
-    std::string sdp;
-    std::vector<CandidateEntry> candidates;
-};
+using libdatachannel_example::CandidateEntry;
+using libdatachannel_example::ParseSignalText;
+using libdatachannel_example::SerializeSignal;
+using libdatachannel_example::SignalData;
 
 constexpr const char* kDefaultSignalDir = "./signals";
 constexpr const char* kOfferFileName = "offer.txt";
@@ -65,20 +60,7 @@ void writeSignalFile(const std::string& path, const SignalData& data) {
         return;
     }
 
-    out << "type:" << data.type << '\n';
-    out << "sdp-begin" << '\n';
-    if (!data.sdp.empty()) {
-        out << data.sdp;
-        if (!data.sdp.empty() && data.sdp.back() != '\n') {
-            out << '\n';
-        }
-    }
-    out << "sdp-end" << '\n';
-
-    for (const auto& candidate : data.candidates) {
-        out << "candidate:" << candidate.sdpMid << '|' /*<< candidate.sdpMLineIndex<< '|'*/  << candidate.candidate
-            << '\n';
-    }
+    out << SerializeSignal(data);
 }
 
 std::optional<SignalData> readSignalFile(const std::string& path) {
@@ -87,53 +69,13 @@ std::optional<SignalData> readSignalFile(const std::string& path) {
         return std::nullopt;
     }
 
-    SignalData data;
-    std::string line;
-
-    if (!std::getline(in, line)) {
-        return std::nullopt;
-    }
-    if (line.rfind("type:", 0) != 0) {
-        return std::nullopt;
-    }
-    data.type = line.substr(5);
-
-    if (!std::getline(in, line) || line != "sdp-begin") {
+    std::ostringstream contents;
+    contents << in.rdbuf();
+    if (!contents) {
         return std::nullopt;
     }
 
-    std::ostringstream sdp;
-    while (std::getline(in, line)) {
-        if (line == "sdp-end") {
-            break;
-        }
-        sdp << line << '\n';
-    }
-    data.sdp = sdp.str();
-
-    while (std::getline(in, line)) {
-        if (line.rfind("candidate:", 0) != 0) {
-            continue;
-        }
-        auto payload = line.substr(10);
-        auto firstSep = payload.find('|');
-        // auto secondSep = payload.find('|', firstSep == std::string::npos ? std::string::npos : firstSep + 1);
-        if (firstSep == std::string::npos) {
-            continue;
-        }
-
-        CandidateEntry entry;
-        entry.sdpMid = payload.substr(0, firstSep);
-        //try {
-        //    entry.sdpMLineIndex = std::stoi(payload.substr(firstSep + 1, secondSep - firstSep - 1));
-        //} catch (...) {
-        //    continue;
-        //}
-        entry.candidate = payload.substr(firstSep + 1);
-        data.candidates.emplace_back(std::move(entry));
-    }
-
-    return data;
+    return ParseSignalText(contents.str());
 }
 
 rtc::Description::Type toDescriptionType(const std::string& type) {

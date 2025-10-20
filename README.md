@@ -53,10 +53,11 @@ Using the same directory allows both processes to exchange SDP descriptions and 
 The repository includes a lightweight browser UI that can act as the answerer when the native application plays the offer role.
 
 1. Start the native demo as the offerer and point it to a directory that the browser can read (for example by serving it through a simple HTTP file server).
-2. Open `examples/web_answer.html` in a browser. Paste the contents of the native `offer.txt` file into the *Offer From Native* textarea and click **Apply Offer**.
-3. Copy the generated text from the *Generated Answer* panel and save it as `answer.txt` alongside the native signaling files.
-4. If new `candidate:` lines appear in `offer.txt`, paste the updated contents and click **Apply Offer** again so the browser can import the additional ICE candidates.
-5. Once the data channel is open you can exchange messages between the browser and the native process using the messaging panel.
+2. Build the WebAssembly target (`ENABLE_WASM=ON`) so that `wasm_app.js`/`wasm_app.wasm` are produced. Copy those artifacts next to `examples/web_answer.html` under `examples/wasm/` (the UI expects them there when loading the libdatachannel runtime).
+3. Open `examples/web_answer.html` in a browser. Paste the contents of the native `offer.txt` file into the *Offer From Native* textarea and click **Apply Offer**.
+4. Copy the generated text from the *Generated Answer* panel and save it as `answer.txt` alongside the native signaling files.
+5. If new `candidate:` lines appear in `offer.txt`, paste the updated contents and click **Apply Offer** again so the browser can import the additional ICE candidates.
+6. Once the data channel is open you can exchange messages between the browser and the native process using the messaging panel.
 
 The page mirrors the signaling file format used by the native demo (`type`, `sdp-begin`/`sdp-end`, and `candidate` lines), so no additional translation step is required.
 
