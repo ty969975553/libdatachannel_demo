@@ -11,6 +11,8 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -20,6 +22,151 @@ struct CandidateEntry {
     int sdpMLineIndex{0};
     std::string candidate;
 };
+
+template <typename T>
+struct is_optional : std::false_type {};
+
+template <typename U>
+struct is_optional<std::optional<U>> : std::true_type {};
+
+template <typename T>
+constexpr bool is_optional_v = is_optional<T>::value;
+
+template <typename T>
+std::string unwrapStringLike(T&& value) {
+    using ValueType = std::decay_t<T>;
+    if constexpr (is_optional_v<ValueType>) {
+        using Inner = typename ValueType::value_type;
+        if (value.has_value()) {
+            if constexpr (std::is_same_v<Inner, std::string>) {
+                return value.value();
+            } else {
+                return std::string{value.value()};
+            }
+        }
+        return std::string{};
+    }
+    return std::string{value};
+}
+
+template <typename T>
+int unwrapIndexLike(T&& value) {
+    using ValueType = std::decay_t<T>;
+    if constexpr (is_optional_v<ValueType>) {
+        return static_cast<int>(value.value_or(0));
+    }
+    return static_cast<int>(value);
+}
+
+template <typename Candidate>
+auto hasMid(int)
+    -> decltype(std::declval<const Candidate&>().mid(), std::true_type{}) {
+    return {};
+}
+
+template <typename Candidate>
+std::false_type hasMid(...) {
+    return {};
+}
+
+template <typename Candidate>
+auto hasSdpMid(int)
+    -> decltype(std::declval<const Candidate&>().sdpMid(), std::true_type{}) {
+    return {};
+}
+
+template <typename Candidate>
+std::false_type hasSdpMid(...) {
+    return {};
+}
+
+template <typename Candidate>
+auto hasMLineIndex(int)
+    -> decltype(std::declval<const Candidate&>().mlineIndex(), std::true_type{}) {
+    return {};
+}
+
+template <typename Candidate>
+std::false_type hasMLineIndex(...) {
+    return {};
+}
+
+template <typename Candidate>
+auto hasSdpMLineIndex(int)
+    -> decltype(std::declval<const Candidate&>().sdpMLineIndex(), std::true_type{}) {
+    return {};
+}
+
+template <typename Candidate>
+std::false_type hasSdpMLineIndex(...) {
+    return {};
+}
+
+template <typename Description>
+auto hasSdpMethod(int)
+    -> decltype(std::declval<const Description&>().sdp(), std::true_type{}) {
+    return {};
+}
+
+template <typename Description>
+std::false_type hasSdpMethod(...) {
+    return {};
+}
+
+template <typename Description>
+auto hasDescriptionMethod(int)
+    -> decltype(std::declval<const Description&>().description(), std::true_type{}) {
+    return {};
+}
+
+template <typename Description>
+std::false_type hasDescriptionMethod(...) {
+    return {};
+}
+
+template <typename Description>
+auto hasGenerateSdpMethod(int)
+    -> decltype(std::declval<const Description&>().generateSdp(), std::true_type{}) {
+    return {};
+}
+
+template <typename Description>
+std::false_type hasGenerateSdpMethod(...) {
+    return {};
+}
+
+template <typename Candidate>
+std::string extractCandidateMid(const Candidate& candidate) {
+    if constexpr (decltype(hasMid<Candidate>(0))::value) {
+        return unwrapStringLike(candidate.mid());
+    } else if constexpr (decltype(hasSdpMid<Candidate>(0))::value) {
+        return unwrapStringLike(candidate.sdpMid());
+    } else {
+        return {};
+    }
+}
+
+template <typename Candidate>
+int extractCandidateMLineIndex(const Candidate& candidate) {
+    if constexpr (decltype(hasMLineIndex<Candidate>(0))::value) {
+        return unwrapIndexLike(candidate.mlineIndex());
+    } else if constexpr (decltype(hasSdpMLineIndex<Candidate>(0))::value) {
+        return unwrapIndexLike(candidate.sdpMLineIndex());
+    }
+    return 0;
+}
+
+template <typename Description>
+std::string extractDescriptionSdp(const Description& description) {
+    if constexpr (decltype(hasSdpMethod<Description>(0))::value) {
+        return unwrapStringLike(description.sdp());
+    } else if constexpr (decltype(hasDescriptionMethod<Description>(0))::value) {
+        return unwrapStringLike(description.description());
+    } else if constexpr (decltype(hasGenerateSdpMethod<Description>(0))::value) {
+        return unwrapStringLike(description.generateSdp());
+    }
+    return {};
+}
 
 struct SignalData {
     std::string type;
@@ -217,7 +364,7 @@ int main(int argc, char* argv[]) {
     peerConnection->onLocalDescription([&](rtc::Description description) {
         {
             std::lock_guard<std::mutex> lock(localSignalMutex);
-            localSignal.sdp = description.sdp();
+            localSignal.sdp = extractDescriptionSdp(description);
         }
         updateLocalSignal();
         std::cout << "Local description written to " << localSignalPath << std::endl;
@@ -227,8 +374,8 @@ int main(int argc, char* argv[]) {
         {
             std::lock_guard<std::mutex> lock(localSignalMutex);
             CandidateEntry entry;
-            entry.sdpMid = candidate.mid();
-            entry.sdpMLineIndex = candidate.mlineIndex().value_or(0);
+            entry.sdpMid = extractCandidateMid(candidate);
+            entry.sdpMLineIndex = extractCandidateMLineIndex(candidate);
             entry.candidate = candidate.candidate();
             localSignal.candidates.push_back(entry);
         }
