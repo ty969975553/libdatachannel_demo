@@ -3,8 +3,11 @@ project(libdatachannel_example LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+if(CMAKE_SYSTEM_NAME MATCHES "Emscripten")
+add_subdirectory(third_party/datachannel-wasm EXCLUDE_FROM_ALL)
+else()
 add_subdirectory(third_party/libdatachannel)
+endif()
 
 add_library(libdatachannel_example STATIC
     src/rtc_connection.cpp
