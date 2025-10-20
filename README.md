@@ -27,13 +27,13 @@ On Windows, the same commands can be executed from a Visual Studio Developer Pro
 
 ## Running the Native Peer-to-Peer Demo
 
-The `native_client` example can establish a local WebRTC data channel between two processes without any external signaling server.
+The `native_app` executable can establish a local WebRTC data channel between two processes without any external signaling server.
 
-1. Build the project and locate the `native_client` executable in your build directory (for example `build/examples/native_client`).
+1. Build the project and locate the `native_app` executable in your build directory (for example `build/native_app`).
 2. In a terminal, start the offerer process:
 
    ```bash
-   ./native_client --role offer --signal-dir ./signals
+   ./native_app --role offer --signal-dir ./signals
    ```
 
    This writes signaling information to `./signals/offer.txt`.
@@ -41,7 +41,7 @@ The `native_client` example can establish a local WebRTC data channel between tw
 3. In a second terminal, start the answerer with the same signaling directory:
 
    ```bash
-   ./native_client --role answer --signal-dir ./signals
+   ./native_app --role answer --signal-dir ./signals
    ```
 
 4. Once the data channel is open, type messages in either terminal and press Enter to send them. Use `/exit` to terminate a process.
