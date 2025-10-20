@@ -4,6 +4,7 @@
 #include <memory>
 #include <queue>
 #include <string>
+#include <rtc/common.hpp>
 
 namespace rtc {
 class DataChannel;
@@ -30,7 +31,7 @@ public:
     void onMessage(std::function<void(const std::string&)> callback);
 
 private:
-    void handleIncomingMessage(const rtc::DataChannelMessage& message);
+    void handleIncomingMessage(const rtc::string& message);
 
     bool running_{false};
     std::function<void(const std::string&)> messageCallback_{};

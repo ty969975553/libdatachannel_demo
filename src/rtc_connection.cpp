@@ -1,7 +1,8 @@
 #include "libdatachannel_example/rtc_connection.h"
 
-#include <libdatachannel/rtcdatachannel.h>
-#include <libdatachannel/rtcpeerconnection.h>
+#include <rtc/rtc.hpp>
+#include <rtc/peerconnection.hpp>
+#include <rtc/datachannel.hpp>
 #include <iostream>
 
 namespace libdatachannel_example {
@@ -13,10 +14,11 @@ RTCConnection::~RTCConnection() {
 }
 
 bool RTCConnection::initialize() {
+    rtc::InitLogger(rtc::LogLevel::Info);
     rtc::Configuration config;
     rtc::DataChannelInit dataChannelConfig;
 
-    peerConnection_ = rtc::createPeerConnection(config);
+    peerConnection_ = std::make_shared<rtc::PeerConnection>(config);
     if (!peerConnection_) {
         std::cerr << "Failed to create peer connection." << std::endl;
         return false;
@@ -29,14 +31,14 @@ bool RTCConnection::initialize() {
     }
 
     dataChannel_->onOpen([this]() {
+        std::cout << "[INFO] channel open\n";
         running_ = true;
     });
 
-    dataChannel_->onMessage([this](const rtc::DataChannelMessage& message) {
+    dataChannel_->onMessage(nullptr,[this](rtc::string message) {
         handleIncomingMessage(message);
     });
 
-    dataChannel_->simulateOpen();
     return true;
 }
 
@@ -68,7 +70,7 @@ void RTCConnection::close() {
 
 void RTCConnection::sendMessage(const std::string& message) {
     if (dataChannel_) {
-        dataChannel_->send(rtc::DataChannelMessage(message));
+        dataChannel_->send(message);
     }
 }
 
@@ -76,7 +78,7 @@ void RTCConnection::onMessage(std::function<void(const std::string&)> callback) 
     messageCallback_ = std::move(callback);
 }
 
-void RTCConnection::handleIncomingMessage(const rtc::DataChannelMessage& message) {
+void RTCConnection::handleIncomingMessage(const rtc::string& message) {
     messageQueue_.push(message.data());
 }
 
