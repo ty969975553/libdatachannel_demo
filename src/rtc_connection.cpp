@@ -1,8 +1,6 @@
 #include "libdatachannel_example/rtc_connection.h"
 
 #include <rtc/rtc.hpp>
-#include <rtc/peerconnection.hpp>
-#include <rtc/datachannel.hpp>
 #include <iostream>
 
 namespace libdatachannel_example {
