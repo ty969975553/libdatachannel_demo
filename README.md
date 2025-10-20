@@ -48,6 +48,18 @@ The `native_app` executable can establish a local WebRTC data channel between tw
 
 Using the same directory allows both processes to exchange SDP descriptions and ICE candidates through the local file system. This setup is convenient for validating native-to-native communication before integrating browser-based peers.
 
+## Using the Browser Answerer
+
+The repository includes a lightweight browser UI that can act as the answerer when the native application plays the offer role.
+
+1. Start the native demo as the offerer and point it to a directory that the browser can read (for example by serving it through a simple HTTP file server).
+2. Open `examples/web_answer.html` in a browser. Paste the contents of the native `offer.txt` file into the *Offer From Native* textarea and click **Apply Offer**.
+3. Copy the generated text from the *Generated Answer* panel and save it as `answer.txt` alongside the native signaling files.
+4. If new `candidate:` lines appear in `offer.txt`, paste the updated contents and click **Apply Offer** again so the browser can import the additional ICE candidates.
+5. Once the data channel is open you can exchange messages between the browser and the native process using the messaging panel.
+
+The page mirrors the signaling file format used by the native demo (`type`, `sdp-begin`/`sdp-end`, and `candidate` lines), so no additional translation step is required.
+
 ## Building the WebAssembly Demo
 
 To produce the WebAssembly executable, enable the `ENABLE_WASM` option with an Emscripten toolchain configured in your environment:
