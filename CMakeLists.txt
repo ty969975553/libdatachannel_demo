@@ -11,6 +11,7 @@ endif()
 
 add_library(libdatachannel_example STATIC
     src/rtc_connection.cpp
+    src/signal_format.cpp
 )
 
 target_include_directories(libdatachannel_example
@@ -43,6 +44,14 @@ if(ENABLE_WASM)
         PRIVATE
             libdatachannel_example
     )
+    if(CMAKE_SYSTEM_NAME MATCHES "Emscripten")
+        target_link_options(wasm_app PRIVATE
+            "SHELL:-sMODULARIZE=1"
+            "SHELL:-sEXPORT_NAME=LibDataChannelExample"
+            "SHELL:-sALLOW_MEMORY_GROWTH=1"
+            "SHELL:--bind"
+        )
+    endif()
 endif()
 
 enable_testing()
